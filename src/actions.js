@@ -1,3 +1,24 @@
+const { ScalekitClient } = require('@scalekit-sdk/node');
+
+// ── Scalekit client (handles OAuth tokens for Jira) ──────────
+const scalekit = new ScalekitClient(
+  process.env.SCALEKIT_ENV_URL,
+  process.env.SCALEKIT_CLIENT_ID,
+  process.env.SCALEKIT_CLIENT_SECRET
+);
+
+const JIRA_CONNECTION = 'jira-olbEyrn7';
+const JIRA_IDENTIFIER = process.env.JIRA_EMAIL;
+
+// Ensure Scalekit client is authenticated (client_credentials grant)
+let _authReady = null;
+async function ensureScalekitAuth() {
+  if (!_authReady) {
+    _authReady = scalekit.coreClient.authenticateClient();
+  }
+  await _authReady;
+}
+
 // ── Slack webhook helper ─────────────────────────────────────
 async function notifySlack(message) {
   if (process.env.MOCK_MODE === 'true') {
@@ -10,6 +31,24 @@ async function notifySlack(message) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: message })
   }).catch(err => console.error('[slack] Failed:', err.message));
+}
+
+// ── Jira helper via Scalekit proxy ───────────────────────────
+async function createJiraTicket(body) {
+  await ensureScalekitAuth();
+  const response = await scalekit.actions.request({
+    connectionName: JIRA_CONNECTION,
+    identifier: JIRA_IDENTIFIER,
+    path: '/rest/api/3/issue',
+    method: 'POST',
+    body,
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
+  });
+
+  return response.data;
 }
 
 // ── Actions ──────────────────────────────────────────────────
@@ -58,11 +97,6 @@ async function executeEscalation(extracted, reason, callId, limit) {
     return { ticket: 'REF-MOCK-001' };
   }
 
-  // Build Jira API auth header
-  const auth = Buffer.from(
-    `${process.env.JIRA_EMAIL}:${process.env.JIRA_TOKEN}`
-  ).toString('base64');
-
   const body = {
     fields: {
       project: { key: process.env.JIRA_PROJECT_KEY },
@@ -93,35 +127,21 @@ async function executeEscalation(extracted, reason, callId, limit) {
     }
   };
 
-  const response = await fetch(
-    `${process.env.JIRA_BASE_URL}/rest/api/3/issue`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(body)
-    }
-  );
+  try {
+    const ticket = await createJiraTicket(body);
+    console.log(`[jira] Ticket created: ${ticket.key}`);
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error('[jira] Failed to create ticket:', err);
-    throw new Error(`Jira ticket creation failed: ${response.status}`);
+    // Update Slack with the real ticket number
+    await notifySlack(
+      `:ticket: Jira ticket *${ticket.key}* created — ` +
+      `${process.env.JIRA_BASE_URL}/browse/${ticket.key}`
+    );
+
+    return { ticket: ticket.key };
+  } catch (err) {
+    console.error('[jira] Failed to create ticket:', err.message);
+    throw new Error(`Jira ticket creation failed: ${err.message}`);
   }
-
-  const ticket = await response.json();
-  console.log(`[jira] Ticket created: ${ticket.key}`);
-
-  // Update Slack with the real ticket number
-  await notifySlack(
-    `:ticket: Jira ticket *${ticket.key}* created — ` +
-    `${process.env.JIRA_BASE_URL}/browse/${ticket.key}`
-  );
-
-  return { ticket: ticket.key };
 }
 
 async function executeFlag(extracted, decision, callId) {
@@ -141,10 +161,6 @@ async function executeFlag(extracted, decision, callId) {
     console.log('[jira] MOCK: flag ticket created for', order_id);
     return;
   }
-
-  const auth = Buffer.from(
-    `${process.env.JIRA_EMAIL}:${process.env.JIRA_TOKEN}`
-  ).toString('base64');
 
   const body = {
     fields: {
@@ -176,28 +192,13 @@ async function executeFlag(extracted, decision, callId) {
     }
   };
 
-  const response = await fetch(
-    `${process.env.JIRA_BASE_URL}/rest/api/3/issue`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(body)
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.text();
-    console.error('[jira] Flag ticket failed:', err);
-    return;
+  try {
+    const ticket = await createJiraTicket(body);
+    console.log(`[jira] Flag ticket created: ${ticket.key}`);
+    await notifySlack(`:ticket: Flag ticket *${ticket.key}* — ${process.env.JIRA_BASE_URL}/browse/${ticket.key}`);
+  } catch (err) {
+    console.error('[jira] Flag ticket failed:', err.message);
   }
-
-  const ticket = await response.json();
-  console.log(`[jira] Flag ticket created: ${ticket.key}`);
-  await notifySlack(`:ticket: Flag ticket *${ticket.key}* — ${process.env.JIRA_BASE_URL}/browse/${ticket.key}`);
 }
 
 module.exports = { executeAuthorized, executeEscalation, executeFlag };
