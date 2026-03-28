@@ -16,4 +16,14 @@ async function executeEscalation(amount, customerId, reason, transcript, limit) 
   }
 }
 
-module.exports = { executeAuthorized, executeEscalation };
+async function executeFlag(reason, callId) {
+  console.log("executeFlag called");
+  if (process.env.MOCK_MODE === 'true') {
+    const msg = `MOCK: Discrepancy flagged — ${reason}`;
+    console.log(msg);
+    return msg;
+  }
+  console.log(`REAL: Creating Jira ticket. Priority: High, Label: policy-violation, Reason: ${reason}`);
+}
+
+module.exports = { executeAuthorized, executeEscalation, executeFlag };
