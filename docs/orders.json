@@ -1,0 +1,27 @@
+{
+    "ORD-8821": {
+        "customerId": "cus_8821",
+        "customerName": "Sarah Chen",
+        "amount": 47.00,
+        "status": "delivered",
+        "purchaseDate": "2026-03-01",
+        "refundable": true
+    },
+    "ORD-4472": {
+        "customerId": "cus_4472",
+        "customerName": "James Okafor",
+        "amount": 300.00,
+        "status": "delayed",
+        "purchaseDate": "2026-03-10",
+        "refundable": true
+    },
+    "ORD-9001": {
+        "customerId": "cus_9001",
+        "customerName": "Mike Torres",
+        "amount": 47.00,
+        "status": "delivered",
+        "purchaseDate": "2025-06-01",
+        "refundable": false,
+        "reason": "Outside 90-day window"
+    }
+}
