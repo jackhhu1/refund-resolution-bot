@@ -18,6 +18,7 @@ async function joinMeeting(meetingUrl) {
     body: JSON.stringify({
       meeting_link: meetingUrl,
       video_required: false,
+      transcription_required: true,
       callback_url: `${process.env.NGROK_URL}/webhook/meetstream`
     })
   });
