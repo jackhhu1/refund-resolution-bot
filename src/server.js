@@ -25,32 +25,47 @@ app.get('/webhook/meetstream', (req, res) => {
 
 // ── MeetStream webhook (POST) ────────────────────────────────
 app.post('/webhook/meetstream', async (req, res) => {
-  res.status(200).send('ok'); // always ack immediately
+  res.status(200).send('ok');
 
   const { event, bot_id, bot_status, message } = req.body;
-  console.log(`[meetstream] event=${event} bot_id=${bot_id} status=${bot_status}`);
+  console.log(`[meetstream] event=${event} bot_id=${bot_id} status=${bot_status ?? ''}`);
 
   if (event === 'bot.joining') {
-    console.log('[meetstream] Bot is joining the meeting...');
+    console.log('[meetstream] Bot is joining...');
   }
 
   if (event === 'bot.inmeeting') {
-    console.log('[meetstream] Bot is live in the meeting');
+    console.log('[meetstream] Bot is live in the meeting — speak clearly!');
   }
 
-  if (event === 'bot.stopped') {
-    console.log(`[meetstream] Bot stopped — reason: ${bot_status} — ${message}`);
-    if (bot_status === 'NotAllowed' || bot_status === 'Denied' || bot_status === 'Error') {
-      console.error('[meetstream] Bot failed to join:', message);
-    }
+  if (event === 'audio.processed') {
+    console.log('[meetstream] Audio ready — waiting for bot.stopped...');
   }
 
   if (event === 'transcription.processed') {
-    console.log('[meetstream] Transcript ready — fetching and running pipeline...');
+    console.log('[meetstream] Transcription processed — will fetch on bot.stopped');
+  }
+
+  if (event === 'bot.stopped') {
+    console.log(`[meetstream] Bot stopped — reason: ${bot_status} — ${message ?? ''}`);
+
+    if (bot_status === 'NotAllowed' || bot_status === 'Denied' || bot_status === 'Error') {
+      console.error('[meetstream] Bot failed:', message);
+      return;
+    }
+
+    // Small delay to let transcription finish processing
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     try {
-      const transcript = await fetchTranscript(bot_id);
-      console.log(`[meetstream] Transcript fetched (${transcript.length} chars)`);
-      const agentId = botSessions[bot_id] ?? 'agent@demo.com';
+      const session = botSessions[bot_id] ?? {};
+      const agentId = session.agent_id ?? 'agent@demo.com';
+      const transcriptId = session.transcript_id;
+
+      console.log('[meetstream] Fetching transcript for bot:', bot_id);
+      const transcript = await fetchTranscript(bot_id, transcriptId);
+      console.log(`[meetstream] Transcript (${transcript.length} chars):`, transcript.slice(0, 200));
+
       await processMeeting(transcript, agentId, bot_id);
     } catch (err) {
       console.error('[meetstream] Pipeline error:', err.message);
@@ -66,7 +81,10 @@ app.post('/join', async (req, res) => {
   }
   try {
     const result = await joinMeeting(meeting_url);
-    botSessions[result.bot_id] = agent_id;
+    botSessions[result.bot_id] = { 
+      agent_id, 
+      transcript_id: result.transcript_id 
+    };
     console.log(`[join] Bot ${result.bot_id} joining for agent ${agent_id}`);
     res.json(result);
   } catch (err) {

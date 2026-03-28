@@ -6,76 +6,94 @@
 async function joinMeeting(meetingUrl) {
   if (process.env.MOCK_MODE === 'true') {
     console.log('[meetstream] MOCK: bot joining', meetingUrl);
-    return { bot_id: 'mock-bot-123', status: 'joining' };
+    return { bot_id: 'mock-bot-123', transcript_id: 'mock-transcript-123' };
   }
 
-  const response = await fetch('https://api.meetstream.ai/api/v1/bots/create_bot', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      meeting_link: meetingUrl,
-      video_required: false,
-      transcription_required: true,
-      callback_url: `${process.env.NGROK_URL}/webhook/meetstream`
-    })
-  });
+  const response = await fetch(
+    'https://api.meetstream.ai/api/v1/bots/create_bot',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        meeting_link: meetingUrl,
+        video_required: false,
+        callback_url: `${process.env.NGROK_URL}/webhook/meetstream`,
+        recording_config: {
+          transcript: {
+            provider: {
+              meeting_captions: {}
+            }
+          }
+        }
+      })
+    }
+  );
 
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`MeetStream joinMeeting failed: ${err}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  console.log('[meetstream] Bot created:', data.bot_id, 'transcript_id:', data.transcript_id);
+  return data;
 }
 
-async function fetchTranscript(botId) {
+async function fetchTranscript(botId, transcriptId) {
   if (process.env.MOCK_MODE === 'true') {
-    return `Speaker 0: Hello, thank you for calling customer support. My name is Alex. How can I assist you today?
-Speaker 1: Hi Alex, I'm calling about an order I received yesterday. It's completely the wrong item.
-Speaker 0: I'm so sorry to hear that. Let me look into this for you. Do you have your order ID?
-Speaker 1: Yes, it's ORD-8821.
-Speaker 0: Thank you. I see your order ORD-8821 for $47. Since we shipped the wrong item, I can process a full refund for you right away.
-Speaker 1: That would be great, thank you.
-Speaker 0: I've gone ahead and submitted the refund for $47. It should appear on your original payment method in 3 to 5 business days. Is there anything else I can help with?
-Speaker 1: No, that's it. Thanks for sorting it out so quickly.
-Speaker 0: You're very welcome. Have a wonderful rest of your day!`;
+    return 'Agent: I can see your order ORD-8821 for $47. I will process a full refund right away.';
   }
 
-  const response = await fetch(
-    `https://api.meetstream.ai/api/v1/bots/${botId}/transcription`,
+  // meeting_captions: fetch bot detail and get S3 caption link
+  const detailRes = await fetch(
+    `https://api.meetstream.ai/api/v1/bots/${botId}/detail`,
     {
       headers: {
-        'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`,
-        'Content-Type': 'application/json'
+        'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`
       }
     }
   );
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Failed to fetch transcript: ${response.status} ${err}`);
+  if (!detailRes.ok) {
+    throw new Error(`Failed to fetch bot detail: ${detailRes.status}`);
   }
 
-  const data = await response.json();
-  console.log('[meetstream] Raw transcript response:', JSON.stringify(data).slice(0, 200));
+  const detail = await detailRes.json();
+  console.log('[meetstream] Bot detail:', JSON.stringify(detail).slice(0, 300));
 
-  // Handle multiple possible response formats
-  if (typeof data === 'string') return data;
-  if (data.transcript) return data.transcript;
-  if (data.transcription) return data.transcription;
-  if (data.text) return data.text;
-  if (Array.isArray(data)) {
-    return data.map(entry =>
-      `${entry.speaker ?? 'Speaker'}: ${entry.text ?? entry.content ?? ''}`
-    ).join('\n');
+  // Try to get caption S3 link from detail response
+  const captionUrl = detail.caption_url 
+    ?? detail.captions_url 
+    ?? detail.transcript_url
+    ?? detail.recording_config?.transcript?.url;
+
+  if (captionUrl) {
+    console.log('[meetstream] Fetching captions from S3...');
+    const captionRes = await fetch(captionUrl);
+    const text = await captionRes.text();
+    console.log('[meetstream] Captions fetched:', text.slice(0, 200));
+    return text;
   }
 
-  // Log full response so we can debug if none of the above match
-  console.log('[meetstream] Full transcript response:', JSON.stringify(data));
-  return JSON.stringify(data);
+  // Fallback: if transcript_id exists try standard endpoint
+  if (transcriptId && transcriptId !== 'mock-transcript-123') {
+    const transcriptRes = await fetch(
+      `https://api.meetstream.ai/api/v1/transcript/${transcriptId}/get_transcript`,
+      {
+        headers: {
+          'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`
+        }
+      }
+    );
+    const data = await transcriptRes.json();
+    console.log('[meetstream] Transcript data:', JSON.stringify(data).slice(0, 300));
+    return data.transcript ?? data.text ?? JSON.stringify(data);
+  }
+
+  throw new Error('No transcript or caption URL available');
 }
 
 module.exports = { joinMeeting, fetchTranscript };
