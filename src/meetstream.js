@@ -83,12 +83,19 @@ async function fetchTranscript(botId, transcriptId) {
     console.log('[meetstream] Transcript response:', JSON.stringify(data).slice(0, 300));
 
     // Handle various response shapes
-    const text = data.transcript 
-      ?? data.text 
-      ?? data.transcription
-      ?? (Array.isArray(data.utterances) 
-          ? data.utterances.map(u => `${u.speaker ?? 'Speaker'}: ${u.text}`).join('\n')
-          : null);
+    let text = null;
+    if (typeof data === 'string') {
+      text = !data.includes('Not started') ? data : null;
+    } else if (Array.isArray(data)) {
+      text = data.map(u => `${u.speaker ?? 'Speaker'}: ${u.transcript ?? u.text ?? ''}`).join('\n');
+    } else if (data && typeof data === 'object') {
+      text = data.transcript 
+        ?? data.text 
+        ?? data.transcription
+        ?? (Array.isArray(data.utterances) 
+            ? data.utterances.map(u => `${u.speaker ?? 'Speaker'}: ${u.text}`).join('\n')
+            : null);
+    }
 
     if (text && text.length > 10) {
       console.log(`[meetstream] Got transcript (${text.length} chars)`);
