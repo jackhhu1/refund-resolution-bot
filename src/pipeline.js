@@ -42,11 +42,11 @@ async function processMeeting(transcript, agentId, callId, scenario) {
   // Step 4 — act on Groq's decision
   let actionResult;
   if (decision.action === 'approve') {
-    actionResult = await executeAuthorized(extracted.refund_amount, extracted.customer_id, agentId, callId);
+    actionResult = await executeAuthorized(extracted.refund_amount, extracted.customer_id, agentId, callId, extracted);
   } else if (decision.action === 'escalate') {
-    actionResult = await executeEscalation(extracted.refund_amount, extracted.customer_id, decision.reason, transcript, 100);
+    actionResult = await executeEscalation(extracted.refund_amount, extracted.customer_id, decision.reason, transcript, 100, extracted);
   } else {
-    actionResult = await executeFlag(decision.reason, callId);
+    actionResult = await executeFlag(decision.reason, callId, decision, extracted);
   }
 
   return {

@@ -5,9 +5,9 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 export async function validateWithGroq({ extracted, policy, orderDB }) {
   if (process.env.MOCK_MODE === 'true') {
     const mocks = {
-      'ORD-8821': { action: 'approve', reason: 'Within $150 limit, order valid' },
-      'ORD-4472': { action: 'escalate', reason: 'Exceeds $150 agent limit' },
-      'ORD-9001': { action: 'flag', reason: 'Outside 90-day refund window' }
+      'ORD-8821': { action: 'approve', reason: 'Within $150 limit, order valid', policy_rule_applied: 'Standard refunds under $150 are auto-approved' },
+      'ORD-4472': { action: 'escalate', reason: 'Exceeds $150 agent limit', policy_rule_applied: 'Elevated refunds ($150–$500) require manager approval' },
+      'ORD-9001': { action: 'flag', reason: 'Outside 90-day refund window', policy_rule_applied: 'Order must be within 90-day return window' }
     };
     return mocks[extracted.order_id] ?? { action: 'flag', reason: 'Unknown order' };
   }
