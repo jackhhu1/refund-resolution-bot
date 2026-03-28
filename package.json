@@ -1,0 +1,10 @@
+{
+  "name": "refund-resolution-bot",
+  "version": "1.0.0",
+  "description": "Refund resolution bot based on meeting transcripts",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  }
+}
