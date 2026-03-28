@@ -24,7 +24,14 @@ async function joinMeeting(meetingUrl) {
         recording_config: {
           transcript: {
             provider: {
-              meeting_captions: {}
+              assemblyai: {
+                speech_models: ['universal-2'],
+                language_code: 'en_us',
+                speaker_labels: true,
+                punctuate: true,
+                format_text: true,
+                filter_profanity: false
+              }
             }
           }
         }
@@ -38,6 +45,7 @@ async function joinMeeting(meetingUrl) {
   }
 
   const data = await response.json();
+  console.log('[meetstream] Full create_bot response:', JSON.stringify(data));
   console.log('[meetstream] Bot created:', data.bot_id, 'transcript_id:', data.transcript_id);
   return data;
 }
@@ -47,40 +55,16 @@ async function fetchTranscript(botId, transcriptId) {
     return 'Agent: I can see your order ORD-8821 for $47. I will process a full refund right away.';
   }
 
-  // meeting_captions: fetch bot detail and get S3 caption link
-  const detailRes = await fetch(
-    `https://api.meetstream.ai/api/v1/bots/${botId}/detail`,
-    {
-      headers: {
-        'Authorization': `Token ${process.env.MEETSTREAM_API_KEY}`
-      }
-    }
-  );
-
-  if (!detailRes.ok) {
-    throw new Error(`Failed to fetch bot detail: ${detailRes.status}`);
+  if (!transcriptId) {
+    throw new Error('No transcript_id available — transcription may not have been configured');
   }
 
-  const detail = await detailRes.json();
-  console.log('[meetstream] Bot detail:', JSON.stringify(detail).slice(0, 300));
+  // Retry up to 5 times with 3 second gaps
+  // AssemblyAI may need a moment after bot.stopped
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    console.log(`[meetstream] Fetching transcript attempt ${attempt}/5...`);
 
-  // Try to get caption S3 link from detail response
-  const captionUrl = detail.caption_url 
-    ?? detail.captions_url 
-    ?? detail.transcript_url
-    ?? detail.recording_config?.transcript?.url;
-
-  if (captionUrl) {
-    console.log('[meetstream] Fetching captions from S3...');
-    const captionRes = await fetch(captionUrl);
-    const text = await captionRes.text();
-    console.log('[meetstream] Captions fetched:', text.slice(0, 200));
-    return text;
-  }
-
-  // Fallback: if transcript_id exists try standard endpoint
-  if (transcriptId && transcriptId !== 'mock-transcript-123') {
-    const transcriptRes = await fetch(
+    const response = await fetch(
       `https://api.meetstream.ai/api/v1/transcript/${transcriptId}/get_transcript`,
       {
         headers: {
@@ -88,12 +72,34 @@ async function fetchTranscript(botId, transcriptId) {
         }
       }
     );
-    const data = await transcriptRes.json();
-    console.log('[meetstream] Transcript data:', JSON.stringify(data).slice(0, 300));
-    return data.transcript ?? data.text ?? JSON.stringify(data);
+
+    if (!response.ok) {
+      console.warn(`[meetstream] Transcript fetch failed: ${response.status}`);
+      await new Promise(r => setTimeout(r, 3000));
+      continue;
+    }
+
+    const data = await response.json();
+    console.log('[meetstream] Transcript response:', JSON.stringify(data).slice(0, 300));
+
+    // Handle various response shapes
+    const text = data.transcript 
+      ?? data.text 
+      ?? data.transcription
+      ?? (Array.isArray(data.utterances) 
+          ? data.utterances.map(u => `${u.speaker ?? 'Speaker'}: ${u.text}`).join('\n')
+          : null);
+
+    if (text && text.length > 10) {
+      console.log(`[meetstream] Got transcript (${text.length} chars)`);
+      return text;
+    }
+
+    console.log(`[meetstream] Transcript not ready yet, waiting 3s...`);
+    await new Promise(r => setTimeout(r, 3000));
   }
 
-  throw new Error('No transcript or caption URL available');
+  throw new Error('Transcript not ready after 5 attempts');
 }
 
 module.exports = { joinMeeting, fetchTranscript };
