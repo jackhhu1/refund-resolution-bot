@@ -2,6 +2,7 @@
 
 An intelligent, automated live-meeting agent designed to sit in on customer support calls, monitor conversations for refund requests in real-time, and execute complex business logic autonomously. By combining state-of-the-art transcription, LLM-based entity extraction, and secure enterprise integrations, the bot can approve, escalate, or flag refunds instantly without manual intervention.
 
+Built Solo in ~5-6hrs
 ---
 
 ## 🚀 Key Technologies & Architecture
